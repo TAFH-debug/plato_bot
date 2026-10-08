@@ -5,9 +5,9 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from .config import ROOT
+from .config import DATA_DIR
 
-_KEY_FILE = ROOT / ".secret.key"
+_KEY_FILE = DATA_DIR / ".secret.key"
 
 
 def _resolve_key(configured: str) -> bytes:

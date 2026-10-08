@@ -54,11 +54,27 @@ python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().de
 |---|---|---|
 | `BOT_TOKEN` | — | Telegram bot token (required) |
 | `PLATO_URL` | `https://plato.pusan.ac.kr` | any Moodle site works |
-| `FERNET_KEY` | auto | token-encryption key |
-| `DB_PATH` | `plato_bot.sqlite3` | SQLite file |
+| `FERNET_KEY` | auto | token-encryption key (else `DATA_DIR/.secret.key`) |
+| `DATA_DIR` | volume mount, else project root | holds the DB and `.secret.key` |
+| `DB_PATH` | `plato_bot.sqlite3` | SQLite file, relative to `DATA_DIR` |
 | `TIMEZONE` | `Asia/Seoul` | used for all displayed times |
 | `DEFAULT_LEADS` | `1440,180,60` | reminder lead times, minutes |
 | `CHECK_INTERVAL_MIN` | `10` | how often the deadline watcher runs |
+
+## Railway
+
+Attach a volume to the service (e.g. mounted at `/data`). Railway exports
+`RAILWAY_VOLUME_MOUNT_PATH`, so the DB and `.secret.key` land there and survive redeploys.
+
+Restore a backup into the volume (key and DB must be from the same install):
+
+```bash
+railway volume files upload ./.secret.key /.secret.key
+railway volume files upload ./plato_bot.sqlite3 /plato_bot.sqlite3
+railway redeploy
+```
+
+Download a backup the same way with `railway volume files download`.
 
 ## Tests
 
