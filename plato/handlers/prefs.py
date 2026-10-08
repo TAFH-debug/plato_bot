@@ -30,7 +30,9 @@ def summary(prefs: dict, tz_name: str) -> str:
         f"⏱ Sent before: <b>{pretty}</b>\n"
         f"\U0001f4f0 Daily digest: <b>{digest}</b>\n"
         f"\U0001f4e8 PLATO notifications: <b>"
-        f"{'forwarded' if prefs['notify_moodle'] else 'off'}</b>"
+        f"{'forwarded' if prefs['notify_moodle'] else 'off'}</b>\n"
+        f"\U0001f4e2 Announcements: <b>"
+        f"{'forwarded' if prefs['notify_forums'] else 'off'}</b>"
     )
 
 
@@ -66,6 +68,15 @@ async def toggle_notifications(call: CallbackQuery, services: Services) -> None:
     new = 0 if prefs["notify_moodle"] else 1
     await services.storage.set_prefs(call.from_user.id, notify_moodle=new)
     await call.answer("Forwarding PLATO notifications" if new else "Forwarding off")
+    await render(call, services)
+
+
+@router.callback_query(F.data == "set:toggle_forums")
+async def toggle_forums(call: CallbackQuery, services: Services) -> None:
+    prefs = await services.storage.get_prefs(call.from_user.id)
+    new = 0 if prefs["notify_forums"] else 1
+    await services.storage.set_prefs(call.from_user.id, notify_forums=new)
+    await call.answer("Forwarding announcements" if new else "Forwarding off")
     await render(call, services)
 
 

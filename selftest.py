@@ -20,7 +20,12 @@ from plato.db import Storage
 from plato.formatting import left, urgency
 from plato.moodle import InvalidLogin, MoodleClient, MoodleError, flatten
 from plato.reminders import Jobs
-from plato.views import assignments_text, upcoming_text
+from plato.views import (
+    announcement_items,
+    announcement_text,
+    assignments_text,
+    upcoming_text,
+)
 
 KST = ZoneInfo("Asia/Seoul")
 NOW = int(time.time())
@@ -78,6 +83,38 @@ def fake_site(request: httpx.Request) -> httpx.Response:
                 ]
             },
         )
+    if fn == "mod_forum_get_forums_by_courses":
+        return httpx.Response(
+            200,
+            json=[
+                {"id": 21, "course": 11, "type": "news", "name": "공지사항"},
+                {"id": 22, "course": 11, "type": "general", "name": "Q&A"},
+            ],
+        )
+    if fn == "mod_forum_get_forum_discussions":
+        return httpx.Response(
+            200,
+            json={
+                "discussions": [
+                    {
+                        "id": 301,
+                        "discussion": 301,
+                        "name": "Midterm <room> change",
+                        "userfullname": "교수",
+                        "message": "<p>Moved to <b>room 204</b>.</p>",
+                        "created": NOW - 1800,
+                    },
+                    {
+                        "id": 300,
+                        "discussion": 300,
+                        "name": "Welcome",
+                        "userfullname": "교수",
+                        "message": "<p>Hello class</p>",
+                        "created": NOW - 86400,
+                    },
+                ]
+            },
+        )
     if fn == "mod_assign_get_submission_status":
         submitted = form.get("assignid") == "6"
         return httpx.Response(
@@ -127,6 +164,16 @@ async def main(live: bool) -> None:
         text = await assignments_text(client, courses, KST)
         check("assignment status split", "Open" in text and "Submitted / graded" in text)
 
+        anns = await announcement_items(client, courses)
+        check("announcements: only news forum", len(anns) == 2 and anns[0]["disc_id"] == 301)
+        rendered = announcement_text(anns[0], KST)
+        check(
+            "announcement renders, strips + escapes html",
+            "Midterm &lt;room&gt; change" in rendered
+            and "room 204" in rendered
+            and "<p>" not in rendered,
+        )
+
         dead = MoodleClient("https://fake", "dead", http)
         try:
             await dead.site_info()
@@ -170,6 +217,19 @@ async def main(live: bool) -> None:
             await jobs.check_deadlines()
             check("reminder not repeated", len(bot.sent) == 1)
             check("wider windows suppressed", await store.already_sent(1, "900:1440"))
+
+            # --- announcement pipeline ------------------------------------
+            await store.set_prefs(1, notify_forums=1)
+            await jobs.poll_announcements()  # first run = baseline, sends nothing
+            check("announcements: baseline is silent", len(bot.sent) == 1)
+            check(
+                "announcements: baseline watermark stored",
+                (await store.get_prefs(1))["last_forum_disc"] == 301,
+            )
+            await store.set_prefs(1, last_forum_disc=1)
+            await jobs.poll_announcements()  # now everything counts as fresh
+            check("announcements: fresh posts forwarded", len(bot.sent) == 3)
+            check("announcements: newest sent last", "room 204" in bot.sent[-1][1])
             await store.close()
 
     if live:

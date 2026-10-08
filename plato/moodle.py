@@ -185,6 +185,27 @@ class MoodleClient:
     async def course_contents(self, courseid: int) -> list[dict]:
         return await self.call("core_course_get_contents", courseid=courseid)
 
+    async def forums(self, courseids: list[int]) -> list[dict]:
+        """Forum instances across courses (plain array)."""
+        if not courseids:
+            return []
+        return await self.call("mod_forum_get_forums_by_courses", courseids=courseids)
+
+    async def forum_discussions(self, forumid: int, perpage: int = 15) -> list[dict]:
+        """Discussions in a forum, newest first. Handles both API names."""
+        for fn in (
+            "mod_forum_get_forum_discussions",
+            "mod_forum_get_forum_discussions_paginated",
+        ):
+            try:
+                data = await self.call(
+                    fn, forumid=forumid, sortorder=1, page=0, perpage=perpage
+                )
+            except MoodleError:
+                continue
+            return data.get("discussions", [])
+        return []
+
 
 # --- helpers over raw payloads ----------------------------------------
 def assignment_state(status: dict) -> tuple[str, str]:

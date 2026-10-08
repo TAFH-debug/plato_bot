@@ -5,7 +5,15 @@ import asyncio
 import time
 from zoneinfo import ZoneInfo
 
-from .formatting import assignment_line, dt, esc, event_line, icon, short_course
+from .formatting import (
+    assignment_line,
+    dt,
+    esc,
+    event_line,
+    icon,
+    short_course,
+    strip_html,
+)
 from .moodle import MoodleClient, MoodleError, assignment_state
 
 STATUS_BUDGET = 30  # max submission-status lookups per request
@@ -57,6 +65,45 @@ async def assignment_items(
     if with_status:
         await _attach_status(client, items)
     return items
+
+
+async def announcement_items(
+    client: MoodleClient, courses: list[dict]
+) -> list[dict]:
+    """Discussions from every announcement forum, normalised, newest id first."""
+    ids = course_ids(courses)
+    if not ids:
+        return []
+    names = course_names(courses)
+    try:
+        forums = await client.forums(ids)
+    except MoodleError:
+        return []
+    news = [f for f in forums if f.get("type") == "news"]
+    out: list[dict] = []
+    for forum in news:
+        try:
+            discussions = await client.forum_discussions(int(forum["id"]))
+        except MoodleError:
+            continue
+        course = names.get(int(forum.get("course", 0)), forum.get("name", ""))
+        for d in discussions:
+            disc_id = int(d.get("discussion") or d.get("id") or 0)
+            if not disc_id:
+                continue
+            out.append(
+                {
+                    "disc_id": disc_id,
+                    "subject": d.get("name") or d.get("subject") or "Announcement",
+                    "author": d.get("userfullname", ""),
+                    "message": d.get("message", ""),
+                    "created": int(d.get("created") or d.get("timemodified") or 0),
+                    "course": course,
+                    "url": f"{client.base_url}/mod/forum/discuss.php?d={disc_id}",
+                }
+            )
+    out.sort(key=lambda i: i["disc_id"], reverse=True)
+    return out
 
 
 def course_ids(courses: list[dict]) -> list[int]:
@@ -208,6 +255,27 @@ def reminder_text(event: dict, tz: ZoneInfo) -> str:
         f"<i>{esc(short_course(course, 60))}</i>\n"
         f"\U0001f5d3 Due {dt(ts, tz)}"
     )
+
+
+def announcement_text(item: dict, tz: ZoneInfo) -> str:
+    subject = esc(item.get("subject") or "Announcement")
+    url = item.get("url") or ""
+    head = (
+        f'\U0001f4e2 <b><a href="{esc(url)}">{subject}</a></b>'
+        if url
+        else f"\U0001f4e2 <b>{subject}</b>"
+    )
+    course = esc(short_course(item.get("course", ""), 60))
+    author = item.get("author", "")
+    when = dt(int(item.get("created") or 0), tz)
+    meta = f"<i>{course}</i>"
+    if author:
+        meta += f" · {esc(author)}"
+    body = strip_html(item.get("message"))[:600]
+    parts = [head, f"{meta}\n\U0001f5d3 {when}"]
+    if body:
+        parts.append(esc(body))
+    return "\n".join(parts[:2]) + ("\n\n" + parts[2] if len(parts) > 2 else "")
 
 
 def notification_text(item: dict, tz: ZoneInfo) -> str:

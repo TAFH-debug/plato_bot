@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import html
+import re
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+_TAG = re.compile(r"<[^>]+>")
+_WS = re.compile(r"\s+")
 
 MODULE_ICON = {
     "assign": "📝",
@@ -24,6 +28,12 @@ STATE_ICON = {"todo": "⬜", "submitted": "✅", "graded": "🏆", "closed": "�
 
 def esc(text: object) -> str:
     return html.escape(str(text or ""), quote=False)
+
+
+def strip_html(markup: object) -> str:
+    """Flatten a forum post's HTML body to a single line of plain text."""
+    text = _TAG.sub(" ", str(markup or ""))
+    return _WS.sub(" ", html.unescape(text)).strip()
 
 
 def dt(ts: int, tz: ZoneInfo) -> str:

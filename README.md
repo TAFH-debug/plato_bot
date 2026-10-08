@@ -14,6 +14,7 @@ Assignments, deadlines, grades and reminders — without opening the site.
 | Deadline reminders (default 1 day / 3 h / 1 h before) | `/settings` |
 | Daily digest of the next 3 days at a chosen hour | `/settings` |
 | PLATO notifications forwarded to Telegram | `/settings` |
+| Course announcements (news forums) pushed on arrival | `/settings` |
 | Drop the cache and refetch | `/sync` |
 | Delete token + all stored data | `/logout` |
 
@@ -25,7 +26,8 @@ rather than scraping HTML:
 - `POST /login/token.php` — exchanges ID + password once for a web-service token
 - `POST /webservice/rest/server.php` — `core_calendar_get_action_events_by_timesort`,
   `mod_assign_get_assignments`, `mod_assign_get_submission_status`,
-  `gradereport_user_get_grade_items`, `message_popup_get_popup_notifications`, …
+  `gradereport_user_get_grade_items`, `message_popup_get_popup_notifications`,
+  `mod_forum_get_forums_by_courses`, `mod_forum_get_forum_discussions`, …
 
 **The password is never stored.** The login message is deleted from the chat immediately,
 and only the resulting token is kept, encrypted with Fernet (`.secret.key` or `FERNET_KEY`).

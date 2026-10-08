@@ -18,12 +18,14 @@ CREATE TABLE IF NOT EXISTS users (
     linked_at     INTEGER
 );
 CREATE TABLE IF NOT EXISTS prefs (
-    tg_id          INTEGER PRIMARY KEY,
-    reminders      INTEGER NOT NULL DEFAULT 1,
-    leads          TEXT    NOT NULL DEFAULT '1440,180,60',
-    digest_hour    INTEGER,
-    notify_moodle  INTEGER NOT NULL DEFAULT 0,
-    last_notif_id  INTEGER NOT NULL DEFAULT 0
+    tg_id            INTEGER PRIMARY KEY,
+    reminders        INTEGER NOT NULL DEFAULT 1,
+    leads            TEXT    NOT NULL DEFAULT '1440,180,60',
+    digest_hour      INTEGER,
+    notify_moodle    INTEGER NOT NULL DEFAULT 0,
+    last_notif_id    INTEGER NOT NULL DEFAULT 0,
+    notify_forums    INTEGER NOT NULL DEFAULT 0,
+    last_forum_disc  INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS sent (
     tg_id    INTEGER NOT NULL,
@@ -44,7 +46,25 @@ class Storage:
         self._db = await aiosqlite.connect(self._path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(SCHEMA)
+        await self._migrate()
         await self._db.commit()
+
+    async def _migrate(self) -> None:
+        """Add columns introduced after a user's DB was first created."""
+        additions = {
+            "prefs": {
+                "notify_forums": "INTEGER NOT NULL DEFAULT 0",
+                "last_forum_disc": "INTEGER NOT NULL DEFAULT 0",
+            },
+        }
+        for table, columns in additions.items():
+            async with self.db.execute(f"PRAGMA table_info({table})") as cur:
+                existing = {row["name"] for row in await cur.fetchall()}
+            for name, decl in columns.items():
+                if name not in existing:
+                    await self.db.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {decl}"
+                    )
 
     async def close(self) -> None:
         if self._db:
@@ -98,7 +118,8 @@ class Storage:
 
     async def linked_users(self) -> list[dict]:
         async with self.db.execute(
-            """SELECT u.*, p.reminders, p.leads, p.digest_hour, p.notify_moodle, p.last_notif_id
+            """SELECT u.*, p.reminders, p.leads, p.digest_hour, p.notify_moodle,
+                      p.last_notif_id, p.notify_forums, p.last_forum_disc
                FROM users u JOIN prefs p USING (tg_id)
                WHERE u.token_enc IS NOT NULL"""
         ) as cur:

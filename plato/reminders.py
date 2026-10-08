@@ -16,7 +16,13 @@ from apscheduler.triggers.interval import IntervalTrigger
 from .keyboards import login_prompt
 from .moodle import MoodleClient, MoodleError, TokenExpired
 from .services import Services
-from .views import digest_text, notification_text, reminder_text
+from .views import (
+    announcement_items,
+    announcement_text,
+    digest_text,
+    notification_text,
+    reminder_text,
+)
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +47,9 @@ class Jobs:
         )
         self.scheduler.add_job(
             self.poll_notifications, IntervalTrigger(minutes=max(5, every)), id="notifs"
+        )
+        self.scheduler.add_job(
+            self.poll_announcements, IntervalTrigger(minutes=max(15, every)), id="forums"
         )
         self.scheduler.add_job(
             self.send_digests, CronTrigger(minute=5), id="digests"
@@ -179,5 +188,40 @@ class Jobs:
                 await asyncio.sleep(0.1)
             if fresh:
                 await self.services.storage.set_prefs(user["tg_id"], last_notif_id=newest)
+
+        await self._for_each(users, one)
+
+    async def poll_announcements(self) -> None:
+        users = [
+            u for u in await self.services.storage.linked_users() if u["notify_forums"]
+        ]
+        if not users:
+            return
+
+        async def one(user: dict) -> None:
+            client = await self._client(user)
+            if client is None:
+                return
+            courses = await client.courses(user["moodle_userid"])
+            items = await announcement_items(client, courses)
+            if not items:
+                return
+            newest = max(i["disc_id"] for i in items)
+            last_seen = int(user["last_forum_disc"])
+            if last_seen == 0:  # first run: baseline, do not replay old posts
+                await self.services.storage.set_prefs(
+                    user["tg_id"], last_forum_disc=newest
+                )
+                return
+            fresh = [i for i in items if i["disc_id"] > last_seen]
+            for item in sorted(fresh, key=lambda i: i["disc_id"]):
+                await self.send(
+                    user["tg_id"], announcement_text(item, self.services.cfg.tz)
+                )
+                await asyncio.sleep(0.1)
+            if fresh:
+                await self.services.storage.set_prefs(
+                    user["tg_id"], last_forum_disc=newest
+                )
 
         await self._for_each(users, one)
