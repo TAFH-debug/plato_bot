@@ -15,6 +15,7 @@ Assignments, deadlines, grades and reminders — without opening the site.
 | Daily digest of the next 3 days at a chosen hour | `/settings` |
 | PLATO notifications forwarded to Telegram | `/settings` |
 | Course announcements (news forums) pushed on arrival | `/settings` |
+| New or changed grades pushed, with feedback | `/settings` |
 | Drop the cache and refetch | `/sync` |
 | Delete token + all stored data | `/logout` |
 
@@ -92,12 +93,12 @@ run.py               entry point
 plato/config.py      env config
 plato/moodle.py      async Moodle web-service client
 plato/services.py    shared http client, storage, token vault, per-user clients
-plato/db.py          SQLite: users, prefs, reminder bookkeeping
+plato/db.py          SQLite: users, prefs, reminder + grade bookkeeping
 plato/views.py       fetch + render (shared by handlers and scheduler)
 plato/formatting.py  escaping, dates, countdowns, icons
 plato/keyboards.py   menus
 plato/handlers/      auth, browse, prefs routers
-plato/reminders.py   APScheduler jobs: deadlines, digest, notifications
+plato/reminders.py   APScheduler jobs: deadlines, digest, notifications, grades
 ```
 
 ## Notes and limits

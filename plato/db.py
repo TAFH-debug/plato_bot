@@ -25,7 +25,16 @@ CREATE TABLE IF NOT EXISTS prefs (
     notify_moodle    INTEGER NOT NULL DEFAULT 0,
     last_notif_id    INTEGER NOT NULL DEFAULT 0,
     notify_forums    INTEGER NOT NULL DEFAULT 0,
-    last_forum_disc  INTEGER NOT NULL DEFAULT 0
+    last_forum_disc  INTEGER NOT NULL DEFAULT 0,
+    notify_grades    INTEGER NOT NULL DEFAULT 0,
+    grades_synced    INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS grades_seen (
+    tg_id     INTEGER NOT NULL,
+    courseid  INTEGER NOT NULL,
+    itemid    INTEGER NOT NULL,
+    grade     TEXT,
+    PRIMARY KEY (tg_id, courseid, itemid)
 );
 CREATE TABLE IF NOT EXISTS sent (
     tg_id    INTEGER NOT NULL,
@@ -55,6 +64,8 @@ class Storage:
             "prefs": {
                 "notify_forums": "INTEGER NOT NULL DEFAULT 0",
                 "last_forum_disc": "INTEGER NOT NULL DEFAULT 0",
+                "notify_grades": "INTEGER NOT NULL DEFAULT 0",
+                "grades_synced": "INTEGER NOT NULL DEFAULT 0",
             },
         }
         for table, columns in additions.items():
@@ -112,14 +123,15 @@ class Storage:
 
     async def forget(self, tg_id: int) -> None:
         async with self._lock:
-            for table in ("users", "prefs", "sent"):
+            for table in ("users", "prefs", "sent", "grades_seen"):
                 await self.db.execute(f"DELETE FROM {table} WHERE tg_id = ?", (tg_id,))
             await self.db.commit()
 
     async def linked_users(self) -> list[dict]:
         async with self.db.execute(
             """SELECT u.*, p.reminders, p.leads, p.digest_hour, p.notify_moodle,
-                      p.last_notif_id, p.notify_forums, p.last_forum_disc
+                      p.last_notif_id, p.notify_forums, p.last_forum_disc,
+                      p.notify_grades, p.grades_synced
                FROM users u JOIN prefs p USING (tg_id)
                WHERE u.token_enc IS NOT NULL"""
         ) as cur:
@@ -145,6 +157,29 @@ class Storage:
             await self.db.execute(
                 f"UPDATE prefs SET {assignments} WHERE tg_id = ?",
                 (*fields.values(), tg_id),
+            )
+            await self.db.commit()
+
+    # --- grade snapshots ---------------------------------------------
+    async def grade_snapshot(self, tg_id: int) -> dict[tuple[int, int], str | None]:
+        """Last seen raw grade per (courseid, itemid)."""
+        async with self.db.execute(
+            "SELECT courseid, itemid, grade FROM grades_seen WHERE tg_id = ?", (tg_id,)
+        ) as cur:
+            return {(r["courseid"], r["itemid"]): r["grade"] for r in await cur.fetchall()}
+
+    async def save_grades(
+        self, tg_id: int, rows: list[tuple[int, int, str | None]]
+    ) -> None:
+        if not rows:
+            return
+        async with self._lock:
+            await self.db.executemany(
+                """INSERT INTO grades_seen (tg_id, courseid, itemid, grade)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(tg_id, courseid, itemid) DO UPDATE SET
+                       grade = excluded.grade""",
+                [(tg_id, c, i, g) for c, i, g in rows],
             )
             await self.db.commit()
 

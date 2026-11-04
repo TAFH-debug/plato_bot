@@ -77,6 +77,7 @@ def settings_menu(prefs: dict) -> InlineKeyboardMarkup:
     )
     notif = "📨 PLATO notifications: ON" if prefs["notify_moodle"] else "📨 PLATO notifications: OFF"
     forums = "📢 Announcements: ON" if prefs["notify_forums"] else "📢 Announcements: OFF"
+    grades = "📊 New grades: ON" if prefs["notify_grades"] else "📊 New grades: OFF"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=on, callback_data="set:toggle_rem")],
@@ -84,6 +85,7 @@ def settings_menu(prefs: dict) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=digest, callback_data="set:digest")],
             [InlineKeyboardButton(text=notif, callback_data="set:toggle_notif")],
             [InlineKeyboardButton(text=forums, callback_data="set:toggle_forums")],
+            [InlineKeyboardButton(text=grades, callback_data="set:toggle_grades")],
             [InlineKeyboardButton(text="🚪 Log out", callback_data="set:logout")],
         ]
     )

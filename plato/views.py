@@ -106,6 +106,59 @@ async def announcement_items(
     return out
 
 
+def _raw_grade(value: object) -> str | None:
+    """Stable string form of graderaw, or None when nothing is graded yet."""
+    if value in (None, ""):
+        return None
+    try:
+        return f"{float(value):.5f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+async def grade_snapshot_items(
+    client: MoodleClient, courses: list[dict], userid: int
+) -> list[dict]:
+    """Visible activity / manual grade items across courses, normalised.
+
+    Course and category totals are skipped: they move with every item and
+    would only repeat what the item notification already said.
+    """
+    names = course_names(courses)
+    out: list[dict] = []
+    for cid in course_ids(courses):
+        try:
+            items = await client.grade_items(cid, userid, cached=False)
+        except MoodleError:
+            continue
+        for g in items:
+            if g.get("itemtype") in ("course", "category") or not g.get("id"):
+                continue
+            if g.get("gradeishidden") or g.get("gradehiddenbydate"):
+                continue
+            module, cmid = g.get("itemmodule"), g.get("cmid")
+            url = (
+                f"{client.base_url}/mod/{module}/view.php?id={cmid}"
+                if module and cmid
+                else f"{client.base_url}/grade/report/user/index.php?id={cid}"
+            )
+            out.append(
+                {
+                    "courseid": cid,
+                    "itemid": int(g["id"]),
+                    "course": names.get(cid, ""),
+                    "name": g.get("itemname") or "Grade item",
+                    "module": module or "",
+                    "raw": _raw_grade(g.get("graderaw")),
+                    "grade": g.get("gradeformatted") or "-",
+                    "pct": g.get("percentageformatted") or "",
+                    "feedback": g.get("feedback") or "",
+                    "url": url,
+                }
+            )
+    return out
+
+
 def course_ids(courses: list[dict]) -> list[int]:
     return [int(c["id"]) for c in courses if c.get("id")]
 
@@ -276,6 +329,34 @@ def announcement_text(item: dict, tz: ZoneInfo) -> str:
     if body:
         parts.append(esc(body))
     return "\n".join(parts[:2]) + ("\n\n" + parts[2] if len(parts) > 2 else "")
+
+
+GRADES_SHOWN = 15
+
+
+def grades_text(items: list[dict]) -> str:
+    """One message for every grade that appeared or changed since last poll."""
+    n = len(items)
+    head = "\U0001f4ca <b>New grade</b>" if n == 1 else f"\U0001f4ca <b>{n} new grades</b>"
+    lines = [head]
+    course = None
+    for item in items[:GRADES_SHOWN]:
+        if item["course"] != course:
+            course = item["course"]
+            lines.append(f"\n<i>{esc(short_course(course, 60))}</i>")
+        title = esc(short_course(item["name"], 46))
+        link = f'<a href="{esc(item["url"])}">{title}</a>' if item.get("url") else title
+        pct = item.get("pct") or ""
+        pct = f" ({esc(pct)})" if pct and pct != "-" else ""
+        tag = " · <i>updated</i>" if item.get("updated") else ""
+        line = f"{icon(item.get('module', ''))} {link}: <b>{esc(item['grade'])}</b>{pct}{tag}"
+        feedback = strip_html(item.get("feedback"))
+        if feedback:
+            line += f"\n   \U0001f4ac <i>{esc(short_course(feedback, 160))}</i>"
+        lines.append(line)
+    if n > GRADES_SHOWN:
+        lines.append(f"\n…and {n - GRADES_SHOWN} more — see /grades")
+    return "\n".join(lines)
 
 
 def notification_text(item: dict, tz: ZoneInfo) -> str:

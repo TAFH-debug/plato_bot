@@ -36,7 +36,8 @@ WELCOME = (
     "• \U0001f4dd assignments and what is still unsubmitted\n"
     "• \U0001f4da courses, contents and \U0001f4ca grades\n"
     "• \U0001f4e8 PLATO notifications forwarded to Telegram\n"
-    "• \U0001f4e2 course announcements the moment they are posted\n\n"
+    "• \U0001f4e2 course announcements the moment they are posted\n"
+    "• \U0001f4ca a ping when a new grade is published\n\n"
     "Send /login to connect your PLATO account."
 )
 HELP = (

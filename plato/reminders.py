@@ -20,6 +20,8 @@ from .views import (
     announcement_items,
     announcement_text,
     digest_text,
+    grade_snapshot_items,
+    grades_text,
     notification_text,
     reminder_text,
 )
@@ -52,6 +54,9 @@ class Jobs:
             self.poll_announcements, IntervalTrigger(minutes=max(15, every)), id="forums"
         )
         self.scheduler.add_job(
+            self.poll_grades, IntervalTrigger(minutes=max(20, every)), id="grades"
+        )
+        self.scheduler.add_job(
             self.send_digests, CronTrigger(minute=5), id="digests"
         )
         self.scheduler.add_job(
@@ -76,7 +81,9 @@ class Jobs:
             return await self.send(tg_id, text, **kwargs)
         except TelegramForbiddenError:
             log.info("user %s blocked the bot; disabling reminders", tg_id)
-            await self.services.storage.set_prefs(tg_id, reminders=0, notify_moodle=0)
+            await self.services.storage.set_prefs(
+                tg_id, reminders=0, notify_moodle=0, notify_forums=0, notify_grades=0
+            )
             return False
         except Exception as exc:  # network hiccup, malformed html, ...
             log.warning("send to %s failed: %s", tg_id, exc)
@@ -223,5 +230,41 @@ class Jobs:
                 await self.services.storage.set_prefs(
                     user["tg_id"], last_forum_disc=newest
                 )
+
+        await self._for_each(users, one)
+
+    async def poll_grades(self) -> None:
+        users = [
+            u for u in await self.services.storage.linked_users() if u["notify_grades"]
+        ]
+        if not users:
+            return
+        storage = self.services.storage
+        missing = object()
+
+        async def one(user: dict) -> None:
+            client = await self._client(user)
+            if client is None:
+                return
+            tg_id = user["tg_id"]
+            courses = await client.courses(user["moodle_userid"])
+            items = await grade_snapshot_items(client, courses, user["moodle_userid"])
+            seen = await storage.grade_snapshot(tg_id)
+            changed = [
+                i
+                for i in items
+                if seen.get((i["courseid"], i["itemid"]), missing) != i["raw"]
+            ]
+            rows = [(i["courseid"], i["itemid"], i["raw"]) for i in changed]
+            if not user["grades_synced"]:  # first run: baseline, do not replay
+                await storage.save_grades(tg_id, rows)
+                await storage.set_prefs(tg_id, grades_synced=1)
+                return
+            fresh = [i for i in changed if i["raw"] is not None]
+            for item in fresh:
+                item["updated"] = seen.get((item["courseid"], item["itemid"])) is not None
+            if fresh and not await self.send(tg_id, grades_text(fresh)):
+                return  # keep the old snapshot so the next poll retries
+            await storage.save_grades(tg_id, rows)
 
         await self._for_each(users, one)

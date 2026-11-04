@@ -24,12 +24,14 @@ from plato.views import (
     announcement_items,
     announcement_text,
     assignments_text,
+    grades_text,
     upcoming_text,
 )
 
 KST = ZoneInfo("Asia/Seoul")
 NOW = int(time.time())
 SOON = NOW + 3600 * 5
+LAB3_GRADE: dict = {"raw": None, "fmt": "-", "feedback": ""}  # mutated by tests
 
 
 def fake_site(request: httpx.Request) -> httpx.Response:
@@ -112,6 +114,53 @@ def fake_site(request: httpx.Request) -> httpx.Response:
                         "message": "<p>Hello class</p>",
                         "created": NOW - 86400,
                     },
+                ]
+            },
+        )
+    if fn == "gradereport_user_get_grade_items":
+        return httpx.Response(
+            200,
+            json={
+                "usergrades": [
+                    {
+                        "gradeitems": [
+                            {
+                                "id": 501,
+                                "itemname": "Lab 3 <final>",
+                                "itemtype": "mod",
+                                "itemmodule": "assign",
+                                "cmid": 55,
+                                "graderaw": LAB3_GRADE["raw"],
+                                "gradeformatted": LAB3_GRADE["fmt"],
+                                "percentageformatted": "-",
+                                "feedback": LAB3_GRADE["feedback"],
+                            },
+                            {
+                                "id": 502,
+                                "itemname": "Quiz 1",
+                                "itemtype": "mod",
+                                "itemmodule": "quiz",
+                                "cmid": 77,
+                                "graderaw": 9.0,
+                                "gradeformatted": "9.00",
+                                "percentageformatted": "90.00 %",
+                            },
+                            {
+                                "id": 503,
+                                "itemname": "Secret",
+                                "itemtype": "manual",
+                                "graderaw": 1.0,
+                                "gradeformatted": "1.00",
+                                "gradeishidden": True,
+                            },
+                            {
+                                "id": 599,
+                                "itemtype": "course",
+                                "graderaw": 9.0,
+                                "gradeformatted": "9.00",
+                            },
+                        ]
+                    }
                 ]
             },
         )
@@ -230,6 +279,50 @@ async def main(live: bool) -> None:
             await jobs.poll_announcements()  # now everything counts as fresh
             check("announcements: fresh posts forwarded", len(bot.sent) == 3)
             check("announcements: newest sent last", "room 204" in bot.sent[-1][1])
+
+            # --- grade pipeline -------------------------------------------
+            sent_before = len(bot.sent)
+            await store.set_prefs(1, notify_grades=1)
+            await jobs.poll_grades()  # first run = baseline, sends nothing
+            check("grades: baseline is silent", len(bot.sent) == sent_before)
+            snap = await store.grade_snapshot(1)
+            check(
+                "grades: baseline skips totals + hidden items",
+                set(snap) == {(11, 501), (11, 502)} and snap[(11, 501)] is None,
+            )
+            await jobs.poll_grades()
+            check("grades: unchanged poll is silent", len(bot.sent) == sent_before)
+
+            LAB3_GRADE.update(raw=85.0, fmt="85.00", feedback="<p>Nice &amp; tidy</p>")
+            await jobs.poll_grades()
+            check("grades: new grade notified once", len(bot.sent) == sent_before + 1)
+            msg = bot.sent[-1][1]
+            check(
+                "grades: message escapes name, strips feedback html",
+                "Lab 3 &lt;final&gt;" in msg
+                and "<b>85.00</b>" in msg
+                and "Nice &amp; tidy" in msg
+                and "<p>" not in msg
+                and "updated" not in msg
+                and "Quiz 1" not in msg,
+            )
+            await jobs.poll_grades()
+            check("grades: not repeated", len(bot.sent) == sent_before + 1)
+
+            LAB3_GRADE.update(raw=90.0, fmt="90.00")
+            await jobs.poll_grades()
+            check(
+                "grades: regrade flagged as updated",
+                len(bot.sent) == sent_before + 2 and "updated" in bot.sent[-1][1],
+            )
+            many = [
+                {"course": "C", "name": f"item {n}", "grade": "1", "url": ""}
+                for n in range(20)
+            ]
+            check("grades: long list truncated", "…and 5 more" in grades_text(many))
+
+            await store.forget(1)
+            check("grades: forget wipes snapshot", await store.grade_snapshot(1) == {})
             await store.close()
 
     if live:

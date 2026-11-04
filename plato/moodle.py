@@ -164,9 +164,14 @@ class MoodleClient:
         data = await self.call("gradereport_overview_get_course_grades", userid=userid)
         return data.get("grades", [])
 
-    async def grade_items(self, courseid: int, userid: int) -> list[dict]:
+    async def grade_items(
+        self, courseid: int, userid: int, cached: bool = True
+    ) -> list[dict]:
         data = await self.call(
-            "gradereport_user_get_grade_items", courseid=courseid, userid=userid
+            "gradereport_user_get_grade_items",
+            cached=cached,
+            courseid=courseid,
+            userid=userid,
         )
         users = data.get("usergrades", [])
         return users[0].get("gradeitems", []) if users else []
